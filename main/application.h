@@ -31,7 +31,6 @@
 #define MAIN_EVENT_START_LISTENING      (1 << 10)
 #define MAIN_EVENT_STOP_LISTENING       (1 << 11)
 #define MAIN_EVENT_STATE_CHANGED        (1 << 12)
-#define MAIN_EVENT_VAD_SILENCE_TIMEOUT  (1 << 13)
 
 
 enum AecMode {
@@ -136,8 +135,6 @@ private:
     std::string last_error_message_;
     AudioService audio_service_;
     std::unique_ptr<Ota> ota_;
-    esp_timer_handle_t vad_silence_timer_ = nullptr;
-    bool vad_silence_timer_started_ = false;
 
     bool has_server_time_ = false;
     bool aborted_ = false;

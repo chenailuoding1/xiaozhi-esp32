@@ -44,29 +44,12 @@ Application::Application() {
         .skip_unhandled_events = true
     };
     esp_timer_create(&clock_timer_args, &clock_timer_handle_);
-
-    esp_timer_create_args_t vad_silence_timer_args = {
-        .callback = [](void* arg) {
-            Application* app = (Application*)arg;
-            app->vad_silence_timer_started_ = false;
-            xEventGroupSetBits(app->event_group_, MAIN_EVENT_VAD_SILENCE_TIMEOUT);
-        },
-        .arg = this,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "vad_silence",
-        .skip_unhandled_events = true
-    };
-    esp_timer_create(&vad_silence_timer_args, &vad_silence_timer_);
 }
 
 Application::~Application() {
     if (clock_timer_handle_ != nullptr) {
         esp_timer_stop(clock_timer_handle_);
         esp_timer_delete(clock_timer_handle_);
-    }
-    if (vad_silence_timer_ != nullptr) {
-        esp_timer_stop(vad_silence_timer_);
-        esp_timer_delete(vad_silence_timer_);
     }
     vEventGroupDelete(event_group_);
 }
@@ -188,7 +171,6 @@ void Application::Run() {
         MAIN_EVENT_SEND_AUDIO |
         MAIN_EVENT_WAKE_WORD_DETECTED |
         MAIN_EVENT_VAD_CHANGE |
-        MAIN_EVENT_VAD_SILENCE_TIMEOUT |
         MAIN_EVENT_CLOCK_TICK |
         MAIN_EVENT_ERROR |
         MAIN_EVENT_NETWORK_CONNECTED |
@@ -251,28 +233,6 @@ void Application::Run() {
             if (GetDeviceState() == kDeviceStateListening) {
                 auto led = Board::GetInstance().GetLed();
                 led->OnStateChanged();
-
-                // Device-side speech end detection for Auto mode
-                if (listening_mode_ == kListeningModeAutoStop) {
-                    if (audio_service_.IsVoiceDetected()) {
-                        // User started speaking, cancel the silence timer
-                        esp_timer_stop(vad_silence_timer_);
-                        vad_silence_timer_started_ = false;
-                    } else if (!vad_silence_timer_started_) {
-                        // User stopped speaking, start silence timer (1.5s)
-                        esp_timer_stop(vad_silence_timer_);
-                        esp_timer_start_once(vad_silence_timer_, 1500000);
-                        vad_silence_timer_started_ = true;
-                    }
-                }
-            }
-        }
-
-        if (bits & MAIN_EVENT_VAD_SILENCE_TIMEOUT) {
-            if (GetDeviceState() == kDeviceStateListening
-                && listening_mode_ == kListeningModeAutoStop) {
-                ESP_LOGI(TAG, "VAD silence timeout, auto stopping listening");
-                StopListening();
             }
         }
 
@@ -895,10 +855,6 @@ void Application::ContinueWakeWordInvoke(const std::string& wake_word) {
 void Application::HandleStateChangedEvent() {
     DeviceState new_state = state_machine_.GetState();
     clock_ticks_ = 0;
-
-    // Stop VAD silence timer on any state change
-    esp_timer_stop(vad_silence_timer_);
-    vad_silence_timer_started_ = false;
 
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
